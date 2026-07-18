@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cushion Screen</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --panel: #1a2332;
+      --border: #2d3a4d;
+      --text: #e7ecf3;
+      --muted: #8b9bb4;
+      --accent: #3d8bfd;
+      --accent2: #20c997;
+      --danger: #ff6b6b;
+      --warn: #ffc107;
+      --track: #243044;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: radial-gradient(1200px 600px at 10% -10%, #1b2a44 0%, var(--bg) 55%);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    .wrap {
+      max-width: 820px;
+      margin: 0 auto;
+      padding: 32px 20px 48px;
+    }
+    h1 {
+      font-size: 1.55rem;
+      font-weight: 650;
+      margin: 0 0 6px;
+      letter-spacing: 0.02em;
+    }
+    .sub { color: var(--muted); font-size: 0.92rem; margin-bottom: 24px; }
+    .card {
+      background: color-mix(in srgb, var(--panel) 92%, black);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 20px 20px 16px;
+      margin-bottom: 16px;
+      box-shadow: 0 10px 40px rgba(0,0,0,.25);
+    }
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    @media (max-width: 640px) {
+      .row { grid-template-columns: 1fr; }
+    }
+    label {
+      display: block;
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+    .field { margin-bottom: 14px; }
+    input[type="text"], input[type="number"], select {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-size: 0.95rem;
+      outline: none;
+    }
+    input:focus, select:focus { border-color: var(--accent); }
+    input[type="file"] {
+      width: 100%;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+    .check {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 22px;
+      color: var(--text);
+      font-size: 0.95rem;
+    }
+    .actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+    button {
+      border: 0;
+      border-radius: 10px;
+      padding: 11px 18px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform .08s ease, opacity .15s;
+    }
+    button:active { transform: scale(0.98); }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    .btn-primary { background: linear-gradient(135deg, #3d8bfd, #5b6cff); color: white; }
+    .btn-secondary { background: var(--track); color: var(--text); border: 1px solid var(--border); }
+    .btn-danger { background: #3a1f24; color: #ffb4b4; border: 1px solid #5c2b33; }
+
+    .status-line {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 12px;
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+    }
+    .badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-weight: 650;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .badge.idle { background: #2a3344; color: var(--muted); }
+    .badge.queued, .badge.running, .badge.cancelling { background: #1e3a5f; color: #8ec5ff; }
+    .badge.done { background: #143d32; color: #7dffc5; }
+    .badge.error { background: #4a1d1d; color: #ff9b9b; }
+    .badge.cancelled { background: #3d3420; color: #ffd28a; }
+
+    .bar {
+      height: 14px;
+      background: var(--track);
+      border-radius: 999px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+    .bar > i {
+      display: block;
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      border-radius: 999px;
+      transition: width .25s ease;
+    }
+    .meta {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin-top: 14px;
+    }
+    @media (max-width: 640px) {
+      .meta { grid-template-columns: 1fr; }
+    }
+    .meta .box {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 12px;
+    }
+    .meta .k { color: var(--muted); font-size: 0.75rem; margin-bottom: 4px; }
+    .meta .v { font-size: 1.05rem; font-variant-numeric: tabular-nums; font-weight: 600; }
+    .msg {
+      margin-top: 12px;
+      color: var(--muted);
+      font-size: 0.9rem;
+      min-height: 1.3em;
+    }
+    .msg.error { color: var(--danger); }
+    pre.result {
+      margin: 12px 0 0;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+      font-size: 0.8rem;
+      overflow: auto;
+      max-height: 220px;
+      color: #b8c7dc;
+    }
+    .hint { font-size: 0.8rem; color: var(--muted); margin-top: 8px; line-height: 1.45; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Cushion Screen</h1>
+    <p class="sub">图片 / 视频 → Minecraft command storage · 进度与 ETA</p>
+
+    <div class="card">
+      <form id="form">
+        <div class="field">
+          <label>媒体文件（图片或视频）</label>
+          <input type="file" name="file" id="file" required />
+        </div>
+        <div class="row">
+          <div class="field">
+            <label>source_name</label>
+            <input type="text" name="source_name" id="source_name" placeholder="默认=文件名" />
+          </div>
+          <div class="field">
+            <label>目标高度 (px)</label>
+            <input type="number" name="target_height" id="target_height" value="64" min="8" max="512" />
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label>采样帧率 target_fps（仅视频）</label>
+            <input type="number" name="target_fps" id="target_fps" value="5" min="0.1" step="0.1" />
+          </div>
+          <div class="field">
+            <label>max_frames（可选，调试用）</label>
+            <input type="number" name="max_frames" id="max_frames" placeholder="空=全部" min="1" />
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label>Bayer 矩阵</label>
+            <select name="dither_matrix_size" id="dither_matrix_size">
+              <option value="auto" selected>auto</option>
+              <option value="2">2×2</option>
+              <option value="4">4×4</option>
+              <option value="8">8×8</option>
+              <option value="16">16×16</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>像素预算 pixel_budget（可选）</label>
+            <input type="number" name="pixel_budget" id="pixel_budget" placeholder="默认 250000" />
+          </div>
+        </div>
+        <div class="row">
+          <label class="check">
+            <input type="checkbox" name="dither" id="dither" checked />
+            启用 Bayer 抖动
+          </label>
+        </div>
+        <div class="actions">
+          <button type="submit" class="btn-primary" id="btnStart">开始处理</button>
+          <button type="button" class="btn-danger" id="btnStop" disabled>停止</button>
+          <button type="button" class="btn-secondary" id="btnRestore">从缓存恢复 dat</button>
+        </div>
+        <p class="hint">
+          写入 <code>data/cs/command_storage.dat</code>；成功后覆盖
+          <code>command_storage.last.dat</code>。处理期间请尽量不要让游戏回写该文件。
+        </p>
+      </form>
+    </div>
+
+    <div class="card">
+      <div class="status-line">
+        <div>
+          <span class="badge idle" id="badge">idle</span>
+          <span style="margin-left:10px;color:var(--muted);font-size:0.9rem" id="phase">—</span>
+        </div>
+        <div style="font-variant-numeric:tabular-nums;font-weight:650" id="pct">0%</div>
+      </div>
+      <div class="bar"><i id="bar"></i></div>
+      <div class="meta">
+        <div class="box">
+          <div class="k">进度</div>
+          <div class="v" id="frac">—</div>
+        </div>
+        <div class="box">
+          <div class="k">已用时间</div>
+          <div class="v" id="elapsed">0:00</div>
+        </div>
+        <div class="box">
+          <div class="k">预计剩余</div>
+          <div class="v" id="eta">—</div>
+        </div>
+      </div>
+      <div class="msg" id="msg">待命</div>
+      <pre class="result" id="result" hidden></pre>
+    </div>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let pollTimer = null;
+    let tickTimer = null;
+    let localStart = null;
+
+    function fmtDur(sec) {
+      if (sec == null || !isFinite(sec) || sec < 0) return "—";
+      sec = Math.round(sec);
+      const h = Math.floor(sec / 3600);
+      const m = Math.floor((sec % 3600) / 60);
+      const s = sec % 60;
+      if (h > 0) return `${h}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`;
+      return `${m}:${String(s).padStart(2,"0")}`;
+    }
+
+    function setBadge(status) {
+      const b = $("badge");
+      b.className = "badge " + (status || "idle");
+      b.textContent = status || "idle";
+    }
+
+    function applyStatus(st) {
+      const p = st.progress || {};
+      const status = st.status || "idle";
+      setBadge(status);
+      $("phase").textContent = p.phase || "—";
+      const pct = p.percent != null ? p.percent : 0;
+      $("pct").textContent = `${pct.toFixed(1)}%`;
+      $("bar").style.width = `${Math.max(0, Math.min(100, pct))}%`;
+
+      if (p.total != null) {
+        $("frac").textContent = `${p.current ?? 0} / ${p.total}`;
+      } else {
+        $("frac").textContent = p.current != null ? String(p.current) : "—";
+      }
+
+      // 优先服务端 elapsed；running 时用本地时钟补间更顺滑
+      let elapsed = p.elapsed || 0;
+      if (status === "running" && localStart) {
+        elapsed = Math.max(elapsed, (Date.now() - localStart) / 1000);
+      }
+      $("elapsed").textContent = fmtDur(elapsed);
+
+      let eta = p.eta_seconds;
+      if (status === "running" && eta == null && p.total && p.current > 0) {
+        eta = elapsed / p.current * (p.total - p.current);
+      }
+      if (status === "done") eta = 0;
+      $("eta").textContent = status === "done" ? "0:00" : fmtDur(eta);
+
+      const msg = $("msg");
+      msg.textContent = st.error || p.message || "";
+      msg.className = "msg" + (status === "error" ? " error" : "");
+
+      const pre = $("result");
+      if (st.result) {
+        pre.hidden = false;
+        pre.textContent = JSON.stringify(st.result, null, 2);
+      } else if (status === "error" && st.error) {
+        pre.hidden = false;
+        pre.textContent = st.error;
+      }
+
+      const busy = status === "running" || status === "queued" || p.phase === "cancelling";
+      $("btnStart").disabled = busy;
+      $("btnStop").disabled = !(status === "running" || status === "queued" || p.phase === "cancelling");
+      if (p.phase === "cancelling") {
+        $("btnStop").disabled = true;
+        $("btnStop").textContent = "停止中…";
+      } else {
+        $("btnStop").textContent = "停止";
+      }
+      if (!busy && pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+      if (!busy && tickTimer) {
+        clearInterval(tickTimer);
+        tickTimer = null;
+      }
+    }
+
+    async function poll() {
+      try {
+        const r = await fetch("/api/status", { cache: "no-store" });
+        const st = await r.json();
+        if (st.status === "running" && !localStart && st.started) {
+          localStart = st.started * 1000;
+        }
+        applyStatus(st);
+      } catch (e) {
+        $("msg").textContent = "状态轮询失败: " + e;
+        $("msg").className = "msg error";
+      }
+    }
+
+    $("form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const fd = new FormData($("form"));
+      // checkbox: 显式传 on/off
+      fd.set("dither", $("dither").checked ? "true" : "false");
+      if (!$("source_name").value.trim() && $("file").files[0]) {
+        const n = $("file").files[0].name.replace(/\.[^.]+$/, "");
+        fd.set("source_name", n);
+      }
+
+      $("result").hidden = true;
+      localStart = Date.now();
+      setBadge("queued");
+      $("btnStart").disabled = true;
+      $("msg").textContent = "上传并启动…";
+      $("msg").className = "msg";
+
+      try {
+        const r = await fetch("/api/start", { method: "POST", body: fd });
+        const j = await r.json();
+        if (!j.ok) throw new Error(j.error || r.statusText);
+        if (!pollTimer) pollTimer = setInterval(poll, 500);
+        if (!tickTimer) tickTimer = setInterval(poll, 250); // 本地时间刷新也走 poll
+        poll();
+      } catch (err) {
+        $("btnStart").disabled = false;
+        $("msg").textContent = String(err.message || err);
+        $("msg").className = "msg error";
+        setBadge("error");
+      }
+    });
+
+    $("btnStop").addEventListener("click", async () => {
+      $("btnStop").disabled = true;
+      $("btnStop").textContent = "停止中…";
+      $("msg").textContent = "正在请求停止…";
+      try {
+        const r = await fetch("/api/stop", { method: "POST" });
+        const j = await r.json();
+        if (!j.ok) {
+          $("msg").textContent = j.error || "无法停止";
+          $("msg").className = "msg error";
+          $("btnStop").textContent = "停止";
+        } else {
+          $("msg").textContent = "已请求停止，等待当前批结束…";
+          if (!pollTimer) pollTimer = setInterval(poll, 400);
+          poll();
+        }
+      } catch (e) {
+        $("msg").textContent = "停止请求失败: " + e;
+        $("msg").className = "msg error";
+        $("btnStop").disabled = false;
+        $("btnStop").textContent = "停止";
+      }
+    });
+
+    $("btnRestore").addEventListener("click", async () => {
+      if (!confirm("从 command_storage.last.dat 覆盖恢复 dat？\n请先退出 Minecraft 世界。")) return;
+      try {
+        const r = await fetch("/api/restore", { method: "POST" });
+        const j = await r.json();
+        alert(j.ok ? "恢复成功: " + j.dat_path : ("失败: " + j.error));
+      } catch (e) {
+        alert("请求失败: " + e);
+      }
+    });
+
+    // 载入默认值
+    fetch("/api/defaults").then(r => r.json()).then(d => {
+      if (d.target_height) $("target_height").value = d.target_height;
+      if (d.target_fps) $("target_fps").value = d.target_fps;
+      if (d.pixel_budget) $("pixel_budget").placeholder = String(d.pixel_budget);
+    }).catch(() => {});
+
+    poll();
+  </script>
+</body>
+</html>
