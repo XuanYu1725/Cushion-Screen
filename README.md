@@ -34,7 +34,7 @@ cache.<name>[t]  = { full:0b, d:[ { x, y, l, c }, ... ] }   # t>0 脏像素
 输出帧数 / 采样帧率 ≈ 原片时长
 ```
 
-例如 30 fps 片源、`target_fps=20` 会得到约 `round(T×20)` 帧，并以 20 fps（`postpone 1t`）播放，而不是旧的 `skip=2 → 15fps`。
+例如 30 fps 片源、`target_fps=20` 会得到约 `round(T×20)` 帧，并以 20 fps（`postpone 1t`）播放。
 
 ## 安装
 
