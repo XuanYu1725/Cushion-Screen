@@ -78,8 +78,9 @@ python -c "from pathlib import Path; from cushion_screen import process_media; p
 | `target_fps` | 采样 / 播放目标帧率 |
 | `source_name` | storage 键名（默认文件名） |
 | `dither` | Bayer 抖动 |
+| `dirty_ciede2000_threshold` | 脏像素 CIEDE2000 阈值（仅视频）：`"auto"` / `float` / `0` 严格相等；`None` 用模块默认 |
 
-脏像素阈值：`DIRTY_CIEDE2000_THRESHOLD`（`"auto"` / `float` / `0` 严格相等）。
+模块全局默认：`DIRTY_CIEDE2000_THRESHOLD`（当前 `10.0`）。Web 表单同名字段可覆盖。
 
 处理成功后会自动 bake：
 

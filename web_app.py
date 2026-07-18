@@ -118,6 +118,7 @@ def _run_job(job_id: str, input_path: Path, params: dict):
             dither=bool(params.get("dither", True)),
             dither_matrix_size=params.get("dither_matrix_size") or "auto",
             dither_strength=params.get("dither_strength"),
+            dirty_ciede2000_threshold=params.get("dirty_ciede2000_threshold"),
             progress_callback=on_progress,
         )
 
@@ -254,6 +255,7 @@ class Handler(SimpleHTTPRequestHandler):
                     "dither": True,
                     "dither_matrix_size": "auto",
                     "max_frames": None,
+                    "dirty_ciede2000_threshold": cs.DIRTY_CIEDE2000_THRESHOLD,
                     "dat_path": str(DAT_PATH),
                     "backup_path": str(cs.storage_backup_path(DAT_PATH)),
                     "mp_workers": cs.MP_WORKERS,
@@ -337,7 +339,27 @@ class Handler(SimpleHTTPRequestHandler):
                     return None
                 return float(v)
 
+            def _dirty_thr(v):
+                """解析脏像素阈值: 空→None(全局默认); auto; 数字; 0=严格相等。"""
+                if v is None:
+                    return None
+                s = str(v).strip()
+                if s == "":
+                    return None
+                if s.lower() == "auto":
+                    return "auto"
+                try:
+                    return float(s)
+                except ValueError:
+                    raise ValueError(
+                        f"dirty_ciede2000_threshold 无效: {v!r}（请填 auto / 数字 / 空）"
+                    )
+
             source_name = (fields.get("source_name") or Path(safe_name).stem).strip()
+            try:
+                dirty_thr = _dirty_thr(fields.get("dirty_ciede2000_threshold"))
+            except ValueError as e:
+                return self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(e)})
             params = {
                 "source_name": source_name,
                 "target_height": int(fields.get("target_height") or 64),
@@ -346,6 +368,7 @@ class Handler(SimpleHTTPRequestHandler):
                 "dither_matrix_size": fields.get("dither_matrix_size") or "auto",
                 "dither_strength": _float_or_none(fields.get("dither_strength")),
                 "max_frames": _int_or_none(fields.get("max_frames")),
+                "dirty_ciede2000_threshold": dirty_thr,
                 "data_version": int(fields.get("data_version") or 5003),
                 "filename": safe_name,
                 "upload_path": str(dest),

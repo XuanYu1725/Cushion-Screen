@@ -229,6 +229,24 @@
           </div>
         </div>
         <div class="row">
+          <div class="field">
+            <label>脏像素 ΔE 阈值（仅视频）</label>
+            <input
+              type="text"
+              name="dirty_ciede2000_threshold"
+              id="dirty_ciede2000_threshold"
+              value="10"
+              placeholder="auto / 数字 / 0=严格"
+            />
+          </div>
+          <div class="field" style="justify-content:flex-end">
+            <p class="hint" style="margin:0">
+              CIEDE2000：<code>auto</code> / <code>10</code> 等；越高脏率越低、色变更「粘」。
+              <code>0</code>=严格相等。
+            </p>
+          </div>
+        </div>
+        <div class="row">
           <label class="check">
             <input type="checkbox" name="dither" id="dither" checked />
             启用 Bayer 抖动
@@ -443,6 +461,9 @@
       if (d.target_height) $("target_height").value = d.target_height;
       if (d.target_fps) $("target_fps").value = d.target_fps;
       if (d.pixel_budget) $("pixel_budget").placeholder = String(d.pixel_budget);
+      if (d.dirty_ciede2000_threshold !== undefined && d.dirty_ciede2000_threshold !== null) {
+        $("dirty_ciede2000_threshold").value = String(d.dirty_ciede2000_threshold);
+      }
     }).catch(() => {});
 
     poll();

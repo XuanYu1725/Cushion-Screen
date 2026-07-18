@@ -1502,6 +1502,7 @@ def process_video_to_storage(
     dither=None,
     dither_matrix_size=None,
     dither_strength=None,
+    dirty_ciede2000_threshold=None,
     progress_callback=None,
 ):
     """
@@ -1509,6 +1510,10 @@ def process_video_to_storage(
     帧0（全量）: { full:1b, rows:[...] }
     帧t>0（脏）: { full:0b, d:[ {x,y,l,c}, ... ] }  相对上一帧变化的像素
     并自动 bake: cs:baked/p{W}x{H} + dirty 应用 + cs:baked/<video_name>/play
+
+    dirty_ciede2000_threshold:
+      None → 使用模块全局 DIRTY_CIEDE2000_THRESHOLD
+      "auto" | float | 0（严格相等）
 
     流式解码；按分辨率/像素预算动态分段。
     progress_callback(dict): phase/current/total/percent/elapsed/eta_seconds/message
@@ -1524,6 +1529,11 @@ def process_video_to_storage(
     use_dither = DITHER_ENABLED if dither is None else bool(dither)
     size_opt = DITHER_MATRIX_SIZE if dither_matrix_size is None else dither_matrix_size
     strength = DITHER_STRENGTH if dither_strength is None else dither_strength
+    dirty_thr_raw = (
+        DIRTY_CIEDE2000_THRESHOLD
+        if dirty_ciede2000_threshold is None
+        else dirty_ciede2000_threshold
+    )
 
     workers = MP_WORKERS if MP_ENABLED else 1
     # 首帧解码后再按真实 w×h 定 batch；此前用 target_height 粗估
@@ -1652,11 +1662,16 @@ def process_video_to_storage(
     else:
         report("init", 0, total_est or 0, "无旧 dat，使用空 storage")
 
-    dirty_thr = resolve_dirty_ciede_threshold()
+    dirty_thr = resolve_dirty_ciede_threshold(dirty_thr_raw)
+    thr_label = (
+        "auto"
+        if isinstance(dirty_thr_raw, str) and str(dirty_thr_raw).lower() == "auto"
+        else str(dirty_thr_raw)
+    )
     print(
         "视频帧存储: [0]=full+rows；[t>0]=dirty d[{x,y,l,c}]  "
         f"相对屏上显示  CIEDE2000≥{dirty_thr:.2f}"
-        + (" (auto)" if str(DIRTY_CIEDE2000_THRESHOLD).lower() == "auto" else "")
+        + (f" (cfg={thr_label})" if thr_label != f"{dirty_thr:g}" else "")
     )
 
     # 进程池延迟到首批配色再创建（避免 init 阶段就 spawn 一堆进程）
@@ -1950,6 +1965,7 @@ def process_media(
     dither=None,
     dither_matrix_size=None,
     dither_strength=None,
+    dirty_ciede2000_threshold=None,
     progress_callback=None,
 ):
     """
@@ -1957,6 +1973,10 @@ def process_media(
     - 图片 → cache.<source_name> = [ {full:1b, rows:[...]} ]
     - 视频 → [0]={full+rows}，[t>0]={full:0b, d:[脏像素]}
     并生成 cs:baked（全量按行 + dirty 逐像素宏）
+
+    dirty_ciede2000_threshold（仅视频）:
+      None → DIRTY_CIEDE2000_THRESHOLD 全局默认
+      "auto" | float(ΔE₀₀) | 0=严格相等
     """
     input_path = Path(input_path)
     if dat_path is None:
@@ -1999,6 +2019,7 @@ def process_media(
         dither=dither,
         dither_matrix_size=dither_matrix_size,
         dither_strength=dither_strength,
+        dirty_ciede2000_threshold=dirty_ciede2000_threshold,
         progress_callback=progress_callback,
     )
 
@@ -2028,7 +2049,7 @@ if __name__ == "__main__":
 
     # ----- 脏像素 CIEDE2000 阈值（视频）-----
     # "auto" | float(ΔE₀₀) | 0=严格相等
-    DIRTY_CIEDE2000_THRESHOLD = 10.0
+    DIRTY_THR = 10.0  # 传给 process_media；也可改模块全局 DIRTY_CIEDE2000_THRESHOLD
 
     # ----- 多进程（见文件顶部 MP_ENABLED / MP_WORKERS）-----
     # import cushion_screen as cs; cs.MP_WORKERS = 8
@@ -2044,4 +2065,5 @@ if __name__ == "__main__":
         dither=DITHER_ENABLED,
         dither_matrix_size=DITHER_MATRIX_SIZE,
         dither_strength=DITHER_STRENGTH,
+        dirty_ciede2000_threshold=DIRTY_THR,
     )
