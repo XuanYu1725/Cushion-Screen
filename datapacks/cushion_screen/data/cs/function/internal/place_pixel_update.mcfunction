@@ -1,6 +1,5 @@
-# 更新单像素（非首帧）：只改 light_block 与 cushion 颜色，不重新 summon
-# 宏参数: x, y, color, light_block
-# 选择器用 type + distance + limit 收窄范围（先 positioned 到像素点再查）
+# 更新单像素（宏参数: x y color light_block）
+# 方块 Y=~0，坐垫 Y=~0.28
 
-$setblock ~$(x) ~1 ~$(y) $(light_block)
-$execute positioned ~$(x) ~1.28 ~$(y) run data merge entity @n[type=minecraft:cushion,distance=..0.3] {color:$(color)}
+$setblock ~$(x) ~0 ~$(y) $(light_block)
+$execute positioned ~$(x) ~0.28 ~$(y) run data merge entity @n[type=minecraft:cushion,distance=..0.3] {color:$(color)}

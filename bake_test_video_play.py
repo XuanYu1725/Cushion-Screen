@@ -110,8 +110,8 @@ def ensure_dirty_pack() -> Path:
         """# 宏参数: x y l c（来自 d[i]）
 # setblock 必须用宏；颜色从 cs:temp baked.p.c 读，避免 value 引号问题
 
-$execute positioned ~$(x) ~1 ~$(y) run setblock ~ ~ ~ $(l)
-$execute positioned ~$(x) ~1.28 ~$(y) run data modify entity @n[type=minecraft:cushion,tag=cs_frame,distance=..0.3] color set from storage cs:temp baked.p.c
+$execute positioned ~$(x) ~0 ~$(y) run setblock ~ ~ ~ $(l)
+$execute positioned ~$(x) ~0.28 ~$(y) run data modify entity @n[type=minecraft:cushion,tag=cs_frame,distance=..0.3] color set from storage cs:temp baked.p.c
 """,
     )
 
@@ -215,19 +215,19 @@ def ensure_size_pack(width: int, height: int) -> Path:
         for x in range(width):
             k = key_x(x)
             block_lines.append(
-                f"$execute positioned ~{x} ~1 ~{y} run setblock ~ ~ ~ $({k})"
+                f"$execute positioned ~{x} ~0 ~{y} run setblock ~ ~ ~ $({k})"
             )
             color_path = f'{color_root}."{k}"'
             summon_lines.append(
-                f'summon cushion ~{x} ~1.28 ~{y} {{Tags:["cs_frame"]}}'
+                f'summon cushion ~{x} ~0.28 ~{y} {{Tags:["cs_frame"]}}'
             )
             summon_lines.append(
-                f"execute positioned ~{x} ~1.28 ~{y} run "
+                f"execute positioned ~{x} ~0.28 ~{y} run "
                 f"data modify entity @n[type=minecraft:cushion,tag=cs_frame,distance=..0.3] color "
                 f"set from storage {color_path}"
             )
             update_lines.append(
-                f"execute positioned ~{x} ~1.28 ~{y} run "
+                f"execute positioned ~{x} ~0.28 ~{y} run "
                 f"data modify entity @n[type=minecraft:cushion,tag=cs_frame,distance=..0.3] color "
                 f"set from storage {color_path}"
             )
