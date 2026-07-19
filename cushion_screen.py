@@ -778,13 +778,31 @@ def palette_delta_e(c1, l1, c2, l2):
     return float(_PALETTE_DE_MATRIX[i, j])
 
 
-def plain_to_dirty_compound(plain_rows, displayed_plain_rows, threshold=None):
+def source_uuid_hash(source_name: str) -> str:
+    """
+    UUID 第一段：source_name 的 CRC32（小写十六进制，无强制前导 0）。
+    完整坐垫 UUID: {hash}-0-0-{x:x}-{y:x}  （后两段为像素坐标十六进制，不补零）
+    """
+    import zlib
+
+    return format(zlib.crc32(str(source_name).encode("utf-8")) & 0xFFFFFFFF, "x")
+
+
+def pixel_uuid(src_hash: str, x: int, y: int) -> str:
+    """确定性坐垫 UUID（连字符分段，各段无强制前导 0）。"""
+    return f"{src_hash}-0-0-{int(x):x}-{int(y):x}"
+
+
+def plain_to_dirty_compound(
+    plain_rows, displayed_plain_rows, threshold=None, *, source_name=None, src_hash=None
+):
     """
     相对「屏上当前显示」的脏像素列表（非简单与上一编码帧比）:
       {
         full: 0b,
-        d: [ {x, y, l: light_block, c: color}, ... ]
+        d: [ {x, y, l: light_block, c: color, u: uuid}, ... ]
       }
+    u = {src_hash}-0-0-{x:x}-{y:x}，供数据包 data modify entity $(u) 直达，避免 @n 查询。
     判定:
       - threshold<=0: color 或 light 字符串任一不同 → 脏
       - threshold>0: 两色板 CIEDE2000 ≥ threshold → 脏（小抖动/邻档不算）
@@ -792,6 +810,7 @@ def plain_to_dirty_compound(plain_rows, displayed_plain_rows, threshold=None):
     new_displayed 仅在脏像素处更新为当前值，保证误差不跨帧漂移。
     """
     thr = resolve_dirty_ciede_threshold(threshold)
+    sh = src_hash if src_hash is not None else source_uuid_hash(source_name or "cs")
     disp = {
         (int(x), int(y)): (str(c), str(b)) for x, y, c, b in displayed_plain_rows
     }
@@ -819,6 +838,7 @@ def plain_to_dirty_compound(plain_rows, displayed_plain_rows, threshold=None):
                         "y": Int(y),
                         "l": String(b),
                         "c": String(c),
+                        "u": String(pixel_uuid(sh, x, y)),
                     }
                 )
             )
@@ -1668,10 +1688,12 @@ def process_video_to_storage(
         if isinstance(dirty_thr_raw, str) and str(dirty_thr_raw).lower() == "auto"
         else str(dirty_thr_raw)
     )
+    uuid_src = source_uuid_hash(video_name)
     print(
-        "视频帧存储: [0]=full+rows；[t>0]=dirty d[{x,y,l,c}]  "
+        "视频帧存储: [0]=full+rows；[t>0]=dirty d[{x,y,l,c,u}]  "
         f"相对屏上显示  CIEDE2000≥{dirty_thr:.2f}"
         + (f" (cfg={thr_label})" if thr_label != f"{dirty_thr:g}" else "")
+        + f"  UUID={uuid_src}-0-0-{{x:x}}-{{y:x}}"
     )
 
     # 进程池延迟到首批配色再创建（避免 init 阶段就 spawn 一堆进程）
@@ -1776,7 +1798,11 @@ def process_video_to_storage(
                 n_dirty = n_px
             else:
                 compound, displayed_plain = plain_to_dirty_compound(
-                    plain, displayed_plain, threshold=dirty_thr
+                    plain,
+                    displayed_plain,
+                    threshold=dirty_thr,
+                    source_name=video_name,
+                    src_hash=uuid_src,
                 )
                 frame_compounds[frame_idx] = compound
                 n_dirty = len(compound["d"])
@@ -1945,7 +1971,7 @@ def process_video_to_storage(
         f"  dirty: 后续帧共 {dirty_px_total:,} 脏像素"
         f"  均值 {avg_dirty:.0f}/{px_frame} ({avg_ratio:.1f}%)"
         f"  ΔE₀₀≥{dirty_thr:.2f}\n"
-        f"  storage: [0]=full+rows  [t>0]=d[{{x,y,l,c}}]\n"
+        f"  storage: [0]=full+rows  [t>0]=d[{{x,y,l,c,u}}]  UUID={uuid_src}-0-0-{{x:x}}-{{y:x}}\n"
         f"  播放: /function {play_hint}"
     )
     return result

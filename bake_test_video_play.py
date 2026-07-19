@@ -6,11 +6,19 @@ storage 帧格式（与 cushion_screen 一致）:
   全量帧（图片 / 视频第 0 帧）:
     { full:1b, rows: [ { light_block:{x:block}, cushion_color:{x:color} }, ... ] }
   脏帧（t>0）:
-    { full:0b, d: [ {x, y, l:light_block, c:color}, ... ] }
+    { full:0b, d: [ {x, y, l:light_block, c:color, u:uuid}, ... ] }
+
+坐垫 UUID（确定性，无强制前导 0）:
+  {source_hash}-0-0-{x:x}-{y:x}
+  - 第一段: source_name 的 CRC32 十六进制
+  - 后两段: 像素坐标 x/y 的十六进制
+  summon: {UUID:uuid("...")}
+  改色/清除: data modify entity <uuid> / kill <uuid>
+  → 避免 @n 实体查询
 
 数据包:
-  full  → 取 rows，按行 place_block(宏) + place_summon/update
-  dirty → 遍历 d[]，每脏像素一次宏 setblock + data modify 改色
+  full  → 取 rows，按行 place_block(宏) + place_summon/update（宏 $(src)）
+  dirty → 遍历 d[]，setblock $(l) + data modify entity $(u)
 """
 
 from __future__ import annotations
@@ -19,6 +27,7 @@ import argparse
 import gzip
 import re
 import shutil
+import zlib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -43,6 +52,26 @@ def write_text(path: Path, text: str) -> None:
 def key_x(x: int) -> str:
     """行内列键 / 宏参数名"""
     return str(int(x))
+
+
+def source_uuid_hash(source_name: str) -> str:
+    """UUID 第一段：source CRC32 十六进制（不强制前导 0）。"""
+    try:
+        from cushion_screen import source_uuid_hash as _h
+
+        return _h(source_name)
+    except Exception:
+        return format(zlib.crc32(str(source_name).encode("utf-8")) & 0xFFFFFFFF, "x")
+
+
+def pixel_uuid(src_hash: str, x: int, y: int) -> str:
+    """{hash}-0-0-{x:x}-{y:x}"""
+    try:
+        from cushion_screen import pixel_uuid as _u
+
+        return _u(src_hash, x, y)
+    except Exception:
+        return f"{src_hash}-0-0-{int(x):x}-{int(y):x}"
 
 
 def scaled_size_from_video(video_path: Path, target_height: int) -> tuple[int, int] | None:
@@ -99,7 +128,7 @@ def ensure_dirty_pack() -> Path:
       loop   — 一批 pump 后若未完则自调
       pump   — 顺序最多 DIRTY_PUMP_SIZE 次 once（浅调用栈）
       once   — 按下标取 d[i] 并 apply
-      apply  — 宏: setblock $(l) + 改色 from p.c
+      apply  — 宏: setblock $(l) + data modify entity $(u) 改色
     """
     if DIRTY_ROOT.exists():
         shutil.rmtree(DIRTY_ROOT)
@@ -107,11 +136,12 @@ def ensure_dirty_pack() -> Path:
 
     write_text(
         DIRTY_ROOT / "apply.mcfunction",
-        """# 宏参数: x y l c（来自 d[i]）
-# setblock 必须用宏；颜色从 cs:temp baked.p.c 读，避免 value 引号问题
+        """# 宏参数: x y l c u（来自 d[i]）
+# setblock 必须用宏；坐垫用确定性 UUID 直达（无 @n 查询）
+# u = {src_hash}-0-0-{x:x}-{y:x}
 
 $execute positioned ~$(x) ~0 ~$(y) run setblock ~ ~ ~ $(l)
-$execute positioned ~$(x) ~0.28 ~$(y) run data modify entity @n[type=minecraft:cushion,tag=cs_frame,distance=..0.3] color set from storage cs:temp baked.p.c
+$data modify entity $(u) color set from storage cs:temp baked.p.c
 """,
     )
 
@@ -169,9 +199,10 @@ def ensure_size_pack(width: int, height: int) -> Path:
     """
     按行生成放置文件（仅用于 full 帧）:
       row/<y>/place_block   — 宏 with 该行 light_block
-      row/<y>/place_summon  — 无宏
-      row/<y>/place_update  — 无宏
-      apply_summon / apply_update — 顺序加载 rows[y] 并刷新每一行
+      row/<y>/place_summon  — 宏 $(src)=source_hash；UUID 坐垫
+      row/<y>/place_update  — 宏 $(src)；按 UUID 改色
+      apply_summon / apply_update — 顺序加载 rows[y]；summon/update with baked.uuid
+    依赖 storage cs:temp baked.uuid.src = source_hash
     """
     width, height = int(width), int(height)
     slot = BAKED_ROOT / f"p{width}x{height}"
@@ -182,18 +213,19 @@ def ensure_size_pack(width: int, height: int) -> Path:
     color_root = "cs:temp baked.cushion_color"
     apply_summon: list[str] = [
         f"# 按行 summon  {width}×{height}  (full 帧)",
-        f"# 依赖: cs:temp baked.frame.rows[] 已就绪",
+        f"# 依赖: cs:temp baked.frame.rows[] + baked.uuid.src（source_hash）",
         "",
     ]
     apply_update: list[str] = [
         f"# 按行 update  {width}×{height}  (full 帧关键帧/回退)",
-        f"# 依赖: cs:temp baked.frame.rows[] 已就绪",
+        f"# 依赖: cs:temp baked.frame.rows[] + baked.uuid.src",
         "",
     ]
 
     for y in range(height):
         row_dir = slot / "row" / str(y)
         row_dir.mkdir(parents=True, exist_ok=True)
+        y_hex = format(y, "x")
 
         block_lines = [
             f"# row {y} place_block  宽 {width}",
@@ -202,34 +234,34 @@ def ensure_size_pack(width: int, height: int) -> Path:
             "",
         ]
         summon_lines = [
-            f"# row {y} place_summon（无宏）",
-            f"# 依赖 {color_root}.\"x\"",
+            f"# row {y} place_summon  宏: src=source_hash",
+            f"# UUID = $(src)-0-0-{{x:x}}-{y_hex}",
+            f"# function …/place_summon with storage cs:temp baked.uuid",
             "",
         ]
         update_lines = [
-            f"# row {y} place_update（无宏）",
-            f"# 依赖 {color_root}.\"x\"",
+            f"# row {y} place_update  宏: src=source_hash",
+            f"# data modify entity $(src)-0-0-{{x:x}}-{y_hex}",
             "",
         ]
 
         for x in range(width):
             k = key_x(x)
+            x_hex = format(x, "x")
+            uid = f"$(src)-0-0-{x_hex}-{y_hex}"
             block_lines.append(
                 f"$execute positioned ~{x} ~0 ~{y} run setblock ~ ~ ~ $({k})"
             )
             color_path = f'{color_root}."{k}"'
+            # summon 指定 UUID；改色直达 UUID（无实体查询）
             summon_lines.append(
-                f'summon cushion ~{x} ~0.28 ~{y} {{Tags:["cs_frame"]}}'
+                f'$summon cushion ~{x} ~0.28 ~{y} {{UUID:uuid("{uid}"),Tags:["cs_frame"]}}'
             )
             summon_lines.append(
-                f"execute positioned ~{x} ~0.28 ~{y} run "
-                f"data modify entity @n[type=minecraft:cushion,tag=cs_frame,distance=..0.3] color "
-                f"set from storage {color_path}"
+                f"$data modify entity {uid} color set from storage {color_path}"
             )
             update_lines.append(
-                f"execute positioned ~{x} ~0.28 ~{y} run "
-                f"data modify entity @n[type=minecraft:cushion,tag=cs_frame,distance=..0.3] color "
-                f"set from storage {color_path}"
+                f"$data modify entity {uid} color set from storage {color_path}"
             )
 
         write_text(row_dir / "place_block.mcfunction", "\n".join(block_lines) + "\n")
@@ -249,7 +281,8 @@ def ensure_size_pack(width: int, height: int) -> Path:
             f"with storage cs:temp baked.light_block"
         )
         apply_summon.append(
-            f"function cs:baked/p{width}x{height}/row/{y}/place_summon"
+            f"function cs:baked/p{width}x{height}/row/{y}/place_summon "
+            f"with storage cs:temp baked.uuid"
         )
         apply_summon.append("")
 
@@ -266,7 +299,8 @@ def ensure_size_pack(width: int, height: int) -> Path:
             f"with storage cs:temp baked.light_block"
         )
         apply_update.append(
-            f"function cs:baked/p{width}x{height}/row/{y}/place_update"
+            f"function cs:baked/p{width}x{height}/row/{y}/place_update "
+            f"with storage cs:temp baked.uuid"
         )
         apply_update.append("")
 
@@ -275,20 +309,42 @@ def ensure_size_pack(width: int, height: int) -> Path:
     return slot
 
 
+def bake_clear(source_name: str, width: int, height: int) -> Path:
+    """按 UUID 清除该 source 的全部坐垫（不扫 @e）。"""
+    src = source_uuid_hash(source_name)
+    out_dir = BAKED_ROOT / source_name
+    out_dir.mkdir(parents=True, exist_ok=True)
+    lines = [
+        f"# kill 全部坐垫  source={source_name}  hash={src}  {width}×{height}",
+        f"# UUID = {src}-0-0-{{x:x}}-{{y:x}}",
+        "",
+    ]
+    for y in range(int(height)):
+        for x in range(int(width)):
+            lines.append(f"kill {pixel_uuid(src, x, y)}")
+    path = out_dir / "clear.mcfunction"
+    write_text(path, "\n".join(lines) + "\n")
+    return path
+
+
 def bake_source_show(source_name: str, width: int, height: int, *, frame_index: int = 0) -> Path:
     flat = f"cs:baked/p{width}x{height}"
+    src = source_uuid_hash(source_name)
+    bake_clear(source_name, width, height)
     path = BAKED_ROOT / "src" / f"{source_name}.mcfunction"
     write_text(
         path,
         f"""# 展示 cache.{source_name}[{frame_index}]  full+rows @ {width}x{height}
+# 坐垫 UUID: {src}-0-0-{{x:x}}-{{y:x}}
 gamerule random_tick_speed 0
 gamerule max_command_sequence_length 2147483647
 
 execute unless data storage cs:cache {source_name}[{frame_index}].rows[0] run return run tellraw @s [{{"text":"[cs:baked/src/{source_name}] 缺少 full rows","color":"red"}}]
 
+data modify storage cs:temp baked.uuid.src set value "{src}"
 data modify storage cs:temp baked.frame set from storage cs:cache {source_name}[{frame_index}]
 
-kill @e[type=minecraft:cushion,tag=cs_frame,distance=..512]
+function cs:baked/{source_name}/clear
 function {flat}/apply_summon
 """,
     )
@@ -309,15 +365,19 @@ def bake_video_play(
 
     max_time = max(0, int(n_frames) - 1)
     flat = f"cs:baked/p{width}x{height}"
+    src = source_uuid_hash(video_name)
+    bake_clear(video_name, width, height)
 
     write_text(
         out / "play.mcfunction",
         f"""# cs:baked/{video_name}/play
 # [0]=full+rows  [t>0]=dirty d[]  {width}×{height}  帧 0..{max_time}  postpone={postpone}
+# 坐垫 UUID: {src}-0-0-{{x:x}}-{{y:x}}  （第一段=source hash，后两段=坐标十六进制，不补零）
 
 scoreboard objectives add cs.video dummy
 
 data modify storage cs:temp baked_play.name set value "{video_name}"
+data modify storage cs:temp baked.uuid.src set value "{src}"
 scoreboard players set #max cs.video {max_time}
 scoreboard players set #time cs.video -1
 scoreboard players set #playing cs.video 1
@@ -329,7 +389,7 @@ schedule clear cs:baked/{video_name}/tick
 schedule clear cs:video/tick
 schedule function cs:baked/{video_name}/tick {postpone} replace
 
-tellraw @s [{{"text":"[cs:baked/{video_name}] {width}x{height}  帧 0..{max_time}  {postpone}  dirty","color":"green"}}]
+tellraw @s [{{"text":"[cs:baked/{video_name}] {width}x{height}  UUID src={src}  帧 0..{max_time}  {postpone}  dirty","color":"green"}}]
 """,
     )
 
@@ -351,8 +411,8 @@ schedule function cs:baked/{video_name}/tick {postpone} replace
     write_text(
         out / "draw.mcfunction",
         f"""# 宏参数: name, time
-# full → 按行 apply_summon / apply_update
-# dirty → cs:baked/dirty/start
+# full → 按行 apply_summon / apply_update（UUID 坐垫）
+# dirty → cs:baked/dirty/start（entity $(u)）
 
 gamerule max_command_sequence_length 2147483647
 
@@ -363,7 +423,7 @@ execute if data storage cs:temp baked.frame{{full:0b}} run return run function c
 
 # 全量帧
 execute unless data storage cs:temp baked.frame.rows[0] run return run tellraw @a [{{"text":"[cs:baked] 缺少 frame.rows（full 帧）","color":"red"}}]
-execute if score #time cs.video matches 0 run kill @e[type=minecraft:cushion,tag=cs_frame,distance=..512]
+execute if score #time cs.video matches 0 run function cs:baked/{video_name}/clear
 execute if score #time cs.video matches 0 run return run function {flat}/apply_summon
 function {flat}/apply_update
 """,
@@ -373,7 +433,10 @@ function {flat}/apply_update
         out / "stop.mcfunction",
         f"""scoreboard players set #playing cs.video 0
 schedule clear cs:baked/{video_name}/tick
-tellraw @a [{{"text":"[cs:baked/{video_name}] 播放结束","color":"gray"}},{{"text":" time=","color":"dark_gray"}},{{"score":{{"name":"#time","objective":"cs.video"}},"color":"dark_gray"}},{{"text":"/","color":"dark_gray"}},{{"score":{{"name":"#max","objective":"cs.video"}},"color":"dark_gray"}}]
+# 播放结束：按 UUID 清掉本视频全部坐垫
+function cs:baked/{video_name}/clear
+kill @e[type=marker,tag=cs_video_origin]
+tellraw @a [{{"text":"[cs:baked/{video_name}] 播放结束（已 clear UUID 坐垫）","color":"gray"}},{{"text":" time=","color":"dark_gray"}},{{"score":{{"name":"#time","objective":"cs.video"}},"color":"dark_gray"}},{{"text":"/","color":"dark_gray"}},{{"score":{{"name":"#max","objective":"cs.video"}},"color":"dark_gray"}}]
 """,
     )
     return out
