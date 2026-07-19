@@ -310,17 +310,29 @@ def ensure_size_pack(width: int, height: int) -> Path:
 
 
 def bake_clear(source_name: str, width: int, height: int) -> Path:
-    """按 UUID 清除该 source 的全部坐垫（不扫 @e）。"""
+    """
+    清除该 source 的画面（须在屏幕原点 at 执行）:
+      1) fill 去掉全部光照方块（底片）
+      2) 按 UUID kill 全部坐垫（不扫 @e）
+    """
     src = source_uuid_hash(source_name)
+    w, h = int(width), int(height)
     out_dir = BAKED_ROOT / source_name
     out_dir.mkdir(parents=True, exist_ok=True)
+    x1, z1 = w - 1, h - 1
     lines = [
-        f"# kill 全部坐垫  source={source_name}  hash={src}  {width}×{height}",
+        f"# clear  source={source_name}  hash={src}  {w}×{h}",
+        f"# 须在原点 at 执行：底片 setblock 区域 + UUID 坐垫",
         f"# UUID = {src}-0-0-{{x:x}}-{{y:x}}",
         "",
+        "gamerule max_command_sequence_length 2147483647",
+        f"# 底片（光照方块层 Y=0）：整板 fill 为 air",
+        f"fill ~0 ~0 ~0 ~{x1} ~0 ~{z1} air",
+        "",
+        "# 坐垫实体",
     ]
-    for y in range(int(height)):
-        for x in range(int(width)):
+    for y in range(h):
+        for x in range(w):
             lines.append(f"kill {pixel_uuid(src, x, y)}")
     path = out_dir / "clear.mcfunction"
     write_text(path, "\n".join(lines) + "\n")
@@ -328,14 +340,36 @@ def bake_clear(source_name: str, width: int, height: int) -> Path:
 
 
 def bake_source_show(source_name: str, width: int, height: int, *, frame_index: int = 0) -> Path:
+    """
+    图片展示入口：与 play_video / cs:get 相同，先 align xyz 再 +0.5 到方块中心，
+    再 clear + apply_summon。禁止在未校准的执行点铺屏（否则坐垫坐标错乱、实体爆炸）。
+    """
     flat = f"cs:baked/p{width}x{height}"
     src = source_uuid_hash(source_name)
     bake_clear(source_name, width, height)
-    path = BAKED_ROOT / "src" / f"{source_name}.mcfunction"
+    src_dir = BAKED_ROOT / "src"
+    src_dir.mkdir(parents=True, exist_ok=True)
+
+    # 实际铺屏（必须已在原点 at）
+    place_path = src_dir / f"{source_name}_place.mcfunction"
+    write_text(
+        place_path,
+        f"""# 内部：在已对齐的屏幕原点 at 执行
+# clear 底片+UUID 坐垫，再 full 按行放置
+function cs:baked/{source_name}/clear
+function {flat}/apply_summon
+tellraw @a [{{"text":"[cs:baked/src/{source_name}] 已放置 {width}×{height} @ 原点","color":"green"}}]
+""",
+    )
+
+    path = src_dir / f"{source_name}.mcfunction"
     write_text(
         path,
         f"""# 展示 cache.{source_name}[{frame_index}]  full+rows @ {width}x{height}
 # 坐垫 UUID: {src}-0-0-{{x:x}}-{{y:x}}
+# 原点校准（与 cs:get / play_video 一致）:
+#   align xyz → 当前方块角；+0.5/+0.5/+0.5 → 方块中心
+
 gamerule random_tick_speed 0
 gamerule max_command_sequence_length 2147483647
 
@@ -344,8 +378,8 @@ execute unless data storage cs:cache {source_name}[{frame_index}].rows[0] run re
 data modify storage cs:temp baked.uuid.src set value "{src}"
 data modify storage cs:temp baked.frame set from storage cs:cache {source_name}[{frame_index}]
 
-function cs:baked/{source_name}/clear
-function {flat}/apply_summon
+# 关键：在脚下方块中心执行 clear + summon（勿省略 align）
+execute align xyz positioned ~0.5 ~0.5 ~0.5 run function cs:baked/src/{source_name}_place
 """,
     )
     return path
@@ -433,10 +467,10 @@ function {flat}/apply_update
         out / "stop.mcfunction",
         f"""scoreboard players set #playing cs.video 0
 schedule clear cs:baked/{video_name}/tick
-# 播放结束：按 UUID 清掉本视频全部坐垫
-function cs:baked/{video_name}/clear
+# 播放结束：在原点 clear 底片(fill air) + UUID 坐垫，再删 marker
+execute as @e[type=marker,tag=cs_video_origin,limit=1] at @s run function cs:baked/{video_name}/clear
 kill @e[type=marker,tag=cs_video_origin]
-tellraw @a [{{"text":"[cs:baked/{video_name}] 播放结束（已 clear UUID 坐垫）","color":"gray"}},{{"text":" time=","color":"dark_gray"}},{{"score":{{"name":"#time","objective":"cs.video"}},"color":"dark_gray"}},{{"text":"/","color":"dark_gray"}},{{"score":{{"name":"#max","objective":"cs.video"}},"color":"dark_gray"}}]
+tellraw @a [{{"text":"[cs:baked/{video_name}] 播放结束（已 clear 底片+坐垫）","color":"gray"}},{{"text":" time=","color":"dark_gray"}},{{"score":{{"name":"#time","objective":"cs.video"}},"color":"dark_gray"}},{{"text":"/","color":"dark_gray"}},{{"score":{{"name":"#max","objective":"cs.video"}},"color":"dark_gray"}}]
 """,
     )
     return out
