@@ -1,4 +1,4 @@
-# Cushion Screen
+﻿# Cushion Screen
 
 把图片 / 视频映射到 Minecraft **cushion（坐垫）+ 光照方块** 显示屏。
 
@@ -21,7 +21,7 @@
 
 ```text
 cache.<name>[0]  = { full:1b, rows:[ { light_block:{ "x": block }, cushion_color:{ "x": color } }, ... ] }
-cache.<name>[t]  = { full:0b, d:[ { x, y, l, c }, ... ] }   # t>0 脏像素
+cache.<name>[t]  = { full:0b, d:[ { x, y, l, c, u }, ... ] }   # t>0 脏像素；u=确定性 UUID
 ```
 
 图片只有 `[0]` 全量帧。视频第 0 帧全量，之后为相对**屏上显示状态**的 CIEDE2000 脏列表。
